@@ -125,33 +125,32 @@ def get_dictionary_from_file(filename):
 def main():
 
     # Paths to parameters files:
-    PARAM_PATH = os.path.join(os.path.dirname(__file__), 'parameters.txt')
-    IP_ADDRESSES_PATH = os.path.join(os.path.dirname(__file__), 'bras-ip-addresses.txt')
+    parameters_path = os.path.join(os.path.dirname(__file__), 'parameters.txt')
+    ip_addresses_path = os.path.join(os.path.dirname(__file__), 'bras-ip-addresses.txt')
 
-    with open(PARAM_PATH) as parameters_file, open(IP_ADDRESSES_PATH) as ip_addresses_file:
-        SSH_USERNAME = get_parameter_from_file('SSH_USERNAME', parameters_file)
-        SSH_PASSWORD = get_parameter_from_file('SSH_PASSWORD', parameters_file)
-        THRESHOLD_256 = int(get_parameter_from_file('THRESHOLD_256', parameters_file))
-        THRESHOLD_512 = int(get_parameter_from_file('THRESHOLD_512', parameters_file))
-        BRAS_LIST = get_dictionary_from_file(ip_addresses_file)
+    with open(parameters_path) as parameters_file, open(ip_addresses_path) as ip_addresses_file:
+        ssh_username = get_parameter_from_file('ssh_username', parameters_file)
+        ssh_password = get_parameter_from_file('ssh_password', parameters_file)
+        threshold_256 = int(get_parameter_from_file('threshold_256', parameters_file))
+        threshold_512 = int(get_parameter_from_file('threshold_512', parameters_file))
+        bras_list = get_dictionary_from_file(ip_addresses_file)
 
-    print(f'{datetime.now()} Starting the pppoe_session_balancing script as {SSH_USERNAME}')
-    print(f'{datetime.now()} Current thresholds are {THRESHOLD_256} for 256, {THRESHOLD_512} for 512.')
+    print(f'{datetime.now()} Starting the pppoe_session_balancing script as {ssh_username}')
+    print(f'{datetime.now()} Current thresholds are {threshold_256} for 256, {threshold_512} for 512.')
 
-    for device_ip in BRAS_LIST.keys():
-        log_message = ''
-        log_message += BRAS_LIST[device_ip] + '>> '
-        print(f'{datetime.now()} Connecting to {BRAS_LIST[device_ip]}... ', end='')
+    for device_ip in bras_list.keys():
+        log_message = bras_list[device_ip] + '>> '
+        print(f'{datetime.now()} Connecting to {bras_list[device_ip]}... ', end='')
 
-        ssh_connection = connection_to_iosxe(SSH_USERNAME, SSH_PASSWORD, device_ip)
+        ssh_connection = connection_to_iosxe(ssh_username, ssh_password, device_ip)
         if ssh_connection is None:  # If a connection failed, skipping this BRAS
             continue
         for interface_and_sessions in get_interfaces_and_sessions(ssh_connection):
             interface_name = interface_and_sessions[0]
             sessions_number = int(interface_and_sessions[1])
-            if sessions_number < THRESHOLD_256:
+            if sessions_number < threshold_256:
                 pado_delay = 0
-            elif THRESHOLD_256 <= sessions_number < THRESHOLD_512:
+            elif threshold_256 <= sessions_number < threshold_512:
                 pado_delay = 256
             else:
                 pado_delay = 512

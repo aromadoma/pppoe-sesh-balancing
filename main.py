@@ -123,7 +123,6 @@ def get_dictionary_from_file(filename):
 
 
 def main():
-
     # Paths to parameters files:
     PARAM_PATH = os.path.join(os.path.dirname(__file__), 'parameters.txt')
     IP_ADDRESSES_PATH = os.path.join(os.path.dirname(__file__), 'bras-ip-addresses.txt')

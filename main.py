@@ -3,6 +3,7 @@ from netmiko import ConnectHandler
 import re
 from datetime import datetime
 import os.path
+import json
 
 
 def connection_to_iosxe(ssh_username, ssh_password, device_ip):
@@ -75,8 +76,9 @@ def set_pado_delay(ssh_connection, interface_name, pado_delay):
     :return: None
     """
     bba_group_names = get_bba_group_names(interface_name)
-    # ssh_connection.send_config_set(f'bba-group pppoe {bba_group_names[0]}', f'pado delay {pado_delay}',
-    #                                f'bba-group pppoe {bba_group_names[1]}', f'pado delay {pado_delay}')
+
+    # ssh_connection.send_config_set([f'bba-group pppoe {bba_group_names[0]}', f'pado delay {pado_delay}',
+    #                                 f'bba-group pppoe {bba_group_names[1]}', f'pado delay {pado_delay}'])
 
     # print('CONFIGURATION:')
     # print(f'bba-group pppoe {bba_group_names[0]}\n', f'pado delay {pado_delay}\n',
@@ -85,64 +87,29 @@ def set_pado_delay(ssh_connection, interface_name, pado_delay):
     return None
 
 
-def get_parameter_from_file(parameter, filename):
-    """
-
-    :param parameter: str, name of sought parameter
-    :param filename: file object, in which we will search a parameter value
-    :return: str, found parameter value
-    """
-    for line in filename:
-        # Skipping commented lines:
-        if line.startswith('#'):
-            continue
-        search = re.search(r'{} = (\S+)'.format(parameter), line)
-        if search is not None:
-            return search.group(1)
-
-
-def get_dictionary_from_file(filename):
-    """
-
-    :param filename: file object, in which we will search a dictionary
-    :return: dict
-    """
-    dictionary = {}
-    list_of_strings = filename.readlines()
-    for string in list_of_strings:
-        # Skipping commented lines:
-        if string.startswith('#'):
-            continue
-        search = re.search(r'(\S+)\s+=\s+(\S+)', string)
-        if search is not None:
-            dictionary_key = search.group(1)
-            dictionary_value = search.group(2)
-            dictionary[dictionary_key] = dictionary_value
-
-    return dictionary
-
-
 def main():
+    # Path to parameters file:
+    parameters_path = os.path.join(os.path.dirname(__file__), 'parameters.json')
 
-    # Paths to parameters files:
-    parameters_path = os.path.join(os.path.dirname(__file__), 'parameters.txt')
-    ip_addresses_path = os.path.join(os.path.dirname(__file__), 'bras-ip-addresses.txt')
-
-    with open(parameters_path) as parameters_file, open(ip_addresses_path) as ip_addresses_file:
-        ssh_username = get_parameter_from_file('ssh_username', parameters_file)
-        ssh_password = get_parameter_from_file('ssh_password', parameters_file)
-        threshold_256 = int(get_parameter_from_file('threshold_256', parameters_file))
-        threshold_512 = int(get_parameter_from_file('threshold_512', parameters_file))
-        bras_list = get_dictionary_from_file(ip_addresses_file)
+    with open(parameters_path) as parameters_file:
+        parameters = json.load(parameters_file)
+        ssh_username = parameters['ssh_username']
+        ssh_password = parameters['ssh_password']
+        threshold_256 = parameters['threshold_256']
+        threshold_512 = parameters['threshold_512']
+        bras_dict = parameters['bras_dict']
 
     print(f'{datetime.now()} Starting the pppoe_session_balancing script as {ssh_username}')
     print(f'{datetime.now()} Current thresholds are {threshold_256} for 256, {threshold_512} for 512.')
 
-    for device_ip in bras_list.keys():
-        log_message = bras_list[device_ip] + '>> '
-        print(f'{datetime.now()} Connecting to {bras_list[device_ip]}... ', end='')
+    for device_ip in bras_dict.keys():
+        if device_ip.startswith('#'):  # handling comment lines
+            continue
+        log_message = bras_dict[device_ip] + '>> '
+        print(f'{datetime.now()} Connecting to {bras_dict[device_ip]}... ', end='')
 
         ssh_connection = connection_to_iosxe(ssh_username, ssh_password, device_ip)
+
         if ssh_connection is None:  # If a connection failed, skipping this BRAS
             continue
         for interface_and_sessions in get_interfaces_and_sessions(ssh_connection):
@@ -156,7 +123,6 @@ def main():
                 pado_delay = 512
 
             set_pado_delay(ssh_connection, interface_name, pado_delay)
-
             log_message += get_interface_number(interface_name) + ': PADO=' + str(pado_delay) + ', '
 
         print(f'{datetime.now()} {log_message}')

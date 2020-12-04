@@ -67,40 +67,72 @@ def get_bba_group_names(interface_name):
     return bba_group_names
 
 
-def set_pado_delay(ssh_connection, interface_name, pado_delay):
+def get_pado_delay(sessions_number, threshold_256, threshold_512, threshold_9999):
     """
 
-    :param ssh_connection: ssh_connection, established via netmiko
-    :param interface_name: str, name of physical interface
-    :param pado_delay: int, pado-delay value
+    :param sessions_number: number of sessions on interface
+    :param threshold_256: int, if number of sessions reaches the threshold, pado delay will be 256
+    :param threshold_512: int, if number of sessions reaches the threshold, pado delay will be 512
+    :param threshold_9999: int, if number of sessions reaches the threshold, pado delay will be 9999
+    :return:
+    """
+    if sessions_number < threshold_256:
+        pado_delay = 0
+    elif threshold_256 <= sessions_number < threshold_512:
+        pado_delay = 256
+    elif threshold_512 <= sessions_number < threshold_9999:
+        pado_delay = 512
+    else:
+        pado_delay = 9999
+
+    return pado_delay
+
+
+def create_pado_config_set(interfaces_and_pado_list):
+    """
+
+    :param interfaces_and_pado_list: list of pair of all BRAS' interfaces and corresponding pado delay values
+    :return: list of str, commands for netmiko to send to device
+    """
+    config_set = []
+    for interface_name, pado_delay in interfaces_and_pado_list:
+        bba_group_names = get_bba_group_names(interface_name)
+        config_set += [f'bba-group pppoe {bba_group_names[0]}', f'pado delay {pado_delay}',
+                       f'bba-group pppoe {bba_group_names[1]}', f'pado delay {pado_delay}']
+
+    return config_set
+
+
+def set_pado_delay(ssh_connection, interfaces_and_pado_list):
+    """
+
+    :param interfaces_and_pado_list: list of pair of all BRAS' interfaces and corresponding pado delay values
+    :param ssh_connection: connection, established via netmiko
     :return: None
     """
-    bba_group_names = get_bba_group_names(interface_name)
 
-    # ssh_connection.send_config_set([f'bba-group pppoe {bba_group_names[0]}', f'pado delay {pado_delay}',
-    #                                 f'bba-group pppoe {bba_group_names[1]}', f'pado delay {pado_delay}'])
-
-    # print('CONFIGURATION:')
-    # print(f'bba-group pppoe {bba_group_names[0]}\n', f'pado delay {pado_delay}\n',
-    #       f'bba-group pppoe {bba_group_names[1]}\n', f'pado delay {pado_delay}')
-
-    return None
+    config_set = create_pado_config_set(interfaces_and_pado_list)
+    # print(config_set)
+    ssh_connection.send_config_set(config_set)
 
 
 def main():
     # Path to parameters file:
     parameters_path = os.path.join(os.path.dirname(__file__), 'parameters.json')
 
+    # Loading parameters from parameters.json:
     with open(parameters_path) as parameters_file:
         parameters = json.load(parameters_file)
         ssh_username = parameters['ssh_username']
         ssh_password = parameters['ssh_password']
         threshold_256 = parameters['threshold_256']
         threshold_512 = parameters['threshold_512']
+        threshold_9999 = parameters['threshold_9999']
         bras_dict = parameters['bras_dict']
 
     print(f'{datetime.now()} Starting the pppoe_session_balancing script as {ssh_username}')
-    print(f'{datetime.now()} Current thresholds are {threshold_256} for 256, {threshold_512} for 512.')
+    print(
+        f'{datetime.now()} Current thresholds are {threshold_256} for 256, {threshold_512} for 512, {threshold_9999} for 9999')
 
     for device_ip in bras_dict.keys():
         if device_ip.startswith('#'):  # handling comment lines
@@ -108,23 +140,20 @@ def main():
         log_message = bras_dict[device_ip] + '>> '
         print(f'{datetime.now()} Connecting to {bras_dict[device_ip]}... ', end='')
 
+        # Connecting to device:
         ssh_connection = connection_to_iosxe(ssh_username, ssh_password, device_ip)
-
         if ssh_connection is None:  # If a connection failed, skipping this BRAS
             continue
-        for interface_and_sessions in get_interfaces_and_sessions(ssh_connection):
-            interface_name = interface_and_sessions[0]
-            sessions_number = int(interface_and_sessions[1])
-            if sessions_number < threshold_256:
-                pado_delay = 0
-            elif threshold_256 <= sessions_number < threshold_512:
-                pado_delay = 256
-            else:
-                pado_delay = 512
 
-            set_pado_delay(ssh_connection, interface_name, pado_delay)
+        # Creating a list with all BRAS' interfaces and corresponding pado delay values:
+        interfaces_and_pado_list = []
+
+        for interface_name, sessions_num in get_interfaces_and_sessions(ssh_connection):
+            pado_delay = get_pado_delay(int(sessions_num), threshold_256, threshold_512, threshold_9999)
             log_message += get_interface_number(interface_name) + ': PADO=' + str(pado_delay) + ', '
+            interfaces_and_pado_list.append([interface_name, pado_delay])
 
+        set_pado_delay(ssh_connection, interfaces_and_pado_list)
         print(f'{datetime.now()} {log_message}')
 
 

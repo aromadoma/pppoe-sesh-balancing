@@ -6,15 +6,16 @@ parameters.json
 ******************************************************************
 
 The file have to contain values for following parameters:
-'ssh_username', 'ssh_password', 'threshold_256', 'threshold_512', 'bras_dict'
+'ssh_username', 'ssh_password', 'threshold_256', 'threshold_512', 'threshold_9999', 'bras_dict'.
 
 An example of content:
 
 {
-  "ssh_username": "username",
-  "ssh_password": "password",
+  "ssh_username": "petr",
+  "ssh_password": "qwerty",
   "threshold_256": 1000,
   "threshold_512": 2000,
+  "threshold_9999": 9000,
   "bras_dict": {
     "10.1.1.1": "HOSTNAME-SG-01",
     "10.1.1.2": "HOSTNAME-SG-02",

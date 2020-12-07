@@ -88,17 +88,54 @@ def get_pado_delay(sessions_number, threshold_256, threshold_512, threshold_9999
     return pado_delay
 
 
-def create_pado_config_set(interfaces_and_pado_list):
+def get_pado_delay_current_dict(ssh_connection):
     """
 
+    :param ssh_connection:
+    :return:
+    """
+    pado_delay_current_dict = {}  # Dictionary for pairs of bba_group_name:pado_delay_current_dict
+
+    for line in ssh_connection.send_command('sh run | sec bba').split(sep='\n'):
+        if line.startswith('bba-group pppoe'):
+            bba_group_name = re.search(r'bba-group pppoe (\S+)', line).group(1)
+            pado_delay_current_dict[bba_group_name] = 0
+        elif line.startswith(' pado delay'):
+            pado_delay_current = re.search(r'pado delay (\S+)', line).group(1)
+            pado_delay_current_dict[bba_group_name] = int(pado_delay_current)
+
+    return pado_delay_current_dict
+
+
+def is_pado_change_needed(bba_group_name, pado_delay, pado_delay_current_dict):
+    """
+
+    :param bba_group_name:
+    :param pado_delay:
+    :param pado_delay_current_dict:
+    :return:
+    """
+    if bba_group_name in pado_delay_current_dict and pado_delay != pado_delay_current_dict[bba_group_name]:
+        return True
+    else:
+        return False
+    
+
+def create_pado_config_set(ssh_connection, interfaces_and_pado_list):
+    """
+
+    :param ssh_connection:
     :param interfaces_and_pado_list: list of pair of all BRAS' interfaces and corresponding pado delay values
     :return: list of str, commands for netmiko to send to device
     """
     config_set = []
+    pado_delay_current_dict = get_pado_delay_current_dict(ssh_connection)
     for interface_name, pado_delay in interfaces_and_pado_list:
-        bba_group_names = get_bba_group_names(interface_name)
-        config_set += [f'bba-group pppoe {bba_group_names[0]}', f'pado delay {pado_delay}',
-                       f'bba-group pppoe {bba_group_names[1]}', f'pado delay {pado_delay}']
+        for bba_group_name in get_bba_group_names(interface_name):
+
+            # Checking if there are diffs between current pado_delay and new calculated pado_delay values:
+            if is_pado_change_needed(bba_group_name, pado_delay, pado_delay_current_dict):
+                config_set += [f'bba-group pppoe {bba_group_name}', f'pado delay {pado_delay}']
 
     return config_set
 
@@ -111,9 +148,10 @@ def set_pado_delay(ssh_connection, interfaces_and_pado_list):
     :return: None
     """
 
-    config_set = create_pado_config_set(interfaces_and_pado_list)
-    # print(config_set)
-    ssh_connection.send_config_set(config_set)
+    config_set = create_pado_config_set(ssh_connection, interfaces_and_pado_list)
+    if config_set:  # If config_set is not empty
+        print(f'CONFIG SET IS {config_set}')
+        ssh_connection.send_config_set(config_set)
 
 
 def main():
@@ -145,15 +183,22 @@ def main():
         if ssh_connection is None:  # If a connection failed, skipping this BRAS
             continue
 
-        # Creating a list with all BRAS' interfaces and corresponding pado delay values:
+        # Creating a list with pairs of BRAS' interfaces and corresponding pado delay values:
         interfaces_and_pado_list = []
 
+        # Pull current sessions amount on BRAS interfaces:
         for interface_name, sessions_num in get_interfaces_and_sessions(ssh_connection):
+
+            # Calculating pado delay value to be applied to bba-group according to thresholds:
             pado_delay = get_pado_delay(int(sessions_num), threshold_256, threshold_512, threshold_9999)
             log_message += get_interface_number(interface_name) + ': PADO=' + str(pado_delay) + ', '
+
+            # Adding interface-pado info to common list:
             interfaces_and_pado_list.append([interface_name, pado_delay])
 
+        # Send interfaces-pado common list to be applied on BRASes:
         set_pado_delay(ssh_connection, interfaces_and_pado_list)
+
         print(f'{datetime.now()} {log_message}')
 
 

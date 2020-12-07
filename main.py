@@ -150,7 +150,6 @@ def set_pado_delay(ssh_connection, interfaces_and_pado_list):
 
     config_set = create_pado_config_set(ssh_connection, interfaces_and_pado_list)
     if config_set:  # If config_set is not empty
-        print(f'CONFIG SET IS {config_set}')
         ssh_connection.send_config_set(config_set)
 
 

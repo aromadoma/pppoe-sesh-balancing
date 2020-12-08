@@ -7,6 +7,13 @@ import json
 
 
 def connection_to_iosxe(ssh_username, ssh_password, device_ip):
+    """
+
+    :param ssh_username: str, username for an ssh connection
+    :param ssh_password: str, password for an ssh connection
+    :param device_ip: str, ip address of device
+    :return: connection, established via netmiko
+    """
     connection_settings = {
         'device_type': 'cisco_xe',
         'ip': device_ip,
@@ -36,7 +43,7 @@ def connection_to_iosxe(ssh_username, ssh_password, device_ip):
 def get_interfaces_and_sessions(ssh_connection):
     """
 
-    :param ssh_connection: ssh_connection, established via netmiko
+    :param ssh_connection: connection, established via netmiko
     :return: list of tuples, which contain interface name and sessions number values
     """
 
@@ -91,8 +98,8 @@ def get_pado_delay(sessions_number, threshold_256, threshold_512, threshold_9999
 def get_pado_delay_current_dict(ssh_connection):
     """
 
-    :param ssh_connection:
-    :return:
+    :param ssh_connection: connection, established via netmiko
+    :return: dict, bba_group_name:pado_delay_current values
     """
     pado_delay_current_dict = {}  # Dictionary for pairs of bba_group_name:pado_delay_current_dict
 
@@ -110,21 +117,21 @@ def get_pado_delay_current_dict(ssh_connection):
 def is_pado_change_needed(bba_group_name, pado_delay, pado_delay_current_dict):
     """
 
-    :param bba_group_name:
-    :param pado_delay:
-    :param pado_delay_current_dict:
-    :return:
+    :param bba_group_name: str, bba-group name
+    :param pado_delay: int, new calculated pado_delay value
+    :param pado_delay_current_dict: dict, bba_group_name:pado_delay_current values
+    :return: bool, true if bba-group exists and new pado_delay value is different than current
     """
     if bba_group_name in pado_delay_current_dict and pado_delay != pado_delay_current_dict[bba_group_name]:
         return True
     else:
         return False
-    
+
 
 def create_pado_config_set(ssh_connection, interfaces_and_pado_list):
     """
 
-    :param ssh_connection:
+    :param ssh_connection: connection, established via netmiko
     :param interfaces_and_pado_list: list of pair of all BRAS' interfaces and corresponding pado delay values
     :return: list of str, commands for netmiko to send to device
     """
@@ -187,7 +194,6 @@ def main():
 
         # Pull current sessions amount on BRAS interfaces:
         for interface_name, sessions_num in get_interfaces_and_sessions(ssh_connection):
-
             # Calculating pado delay value to be applied to bba-group according to thresholds:
             pado_delay = get_pado_delay(int(sessions_num), threshold_256, threshold_512, threshold_9999)
             log_message += get_interface_number(interface_name) + ': PADO=' + str(pado_delay) + ', '

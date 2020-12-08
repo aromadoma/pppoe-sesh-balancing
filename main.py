@@ -62,7 +62,7 @@ def get_bba_group_names(interface_name):
     :return: list, two bba-groups names
     """
     interface_number = get_interface_number(interface_name)
-    bba_group_names = (f'PPPOE_{interface_number}', f'PPPoE_NAT_{interface_number}')
+    bba_group_names = (f'PPPOE_{interface_number}', f'PPPOE_NAT_{interface_number}')
 
     return bba_group_names
 

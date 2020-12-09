@@ -167,7 +167,7 @@ def main():
         threshold_9999 = parameters['threshold_9999']
         bras_dict = parameters['bras_dict']
 
-    print(f'{datetime.now()} Starting the pppoe_session_balancing script as {ssh_username}')
+    print(f'{datetime.now()} Starting the pppoe_session_balancing for ALM script as {ssh_username}')
     print(
         f'{datetime.now()} Current thresholds are {threshold_256} for 256, {threshold_512} for 512, {threshold_9999} for 9999')
 

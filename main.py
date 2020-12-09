@@ -3,9 +3,17 @@ from netmiko import ConnectHandler
 import re
 from datetime import datetime
 import os.path
+import json
 
 
 def connection_to_iosxe(ssh_username, ssh_password, device_ip):
+    """
+
+    :param ssh_username: str, username for an ssh connection
+    :param ssh_password: str, password for an ssh connection
+    :param device_ip: str, ip address of device
+    :return: connection, established via netmiko
+    """
     connection_settings = {
         'device_type': 'cisco_xe',
         'ip': device_ip,
@@ -35,7 +43,7 @@ def connection_to_iosxe(ssh_username, ssh_password, device_ip):
 def get_interfaces_and_sessions(ssh_connection):
     """
 
-    :param ssh_connection: ssh_connection, established via netmiko
+    :param ssh_connection: connection, established via netmiko
     :return: list of tuples, which contain interface name and sessions number values
     """
 
@@ -66,98 +74,135 @@ def get_bba_group_names(interface_name):
     return bba_group_names
 
 
-def set_pado_delay(ssh_connection, interface_name, pado_delay):
+def get_pado_delay(sessions_number, threshold_256, threshold_512, threshold_9999):
     """
 
-    :param ssh_connection: ssh_connection, established via netmiko
-    :param interface_name: str, name of physical interface
-    :param pado_delay: int, pado-delay value
+    :param sessions_number: number of sessions on interface
+    :param threshold_256: int, if number of sessions reaches the threshold, pado delay will be 256
+    :param threshold_512: int, if number of sessions reaches the threshold, pado delay will be 512
+    :param threshold_9999: int, if number of sessions reaches the threshold, pado delay will be 9999
+    :return:
+    """
+    if sessions_number < threshold_256:
+        pado_delay = 0
+    elif threshold_256 <= sessions_number < threshold_512:
+        pado_delay = 256
+    elif threshold_512 <= sessions_number < threshold_9999:
+        pado_delay = 512
+    else:
+        pado_delay = 9999
+
+    return pado_delay
+
+
+def get_pado_delay_current_dict(ssh_connection):
+    """
+
+    :param ssh_connection: connection, established via netmiko
+    :return: dict, bba_group_name:pado_delay_current values
+    """
+    pado_delay_current_dict = {}  # Dictionary for pairs of bba_group_name:pado_delay_current_dict
+
+    for line in ssh_connection.send_command('sh run | sec bba').split(sep='\n'):
+        if line.startswith('bba-group pppoe'):
+            bba_group_name = re.search(r'bba-group pppoe (\S+)', line).group(1)
+            pado_delay_current_dict[bba_group_name] = 0
+        elif line.startswith(' pado delay'):
+            pado_delay_current = re.search(r'pado delay (\S+)', line).group(1)
+            pado_delay_current_dict[bba_group_name] = int(pado_delay_current)
+
+    return pado_delay_current_dict
+
+
+def is_pado_change_needed(bba_group_name, pado_delay, pado_delay_current_dict):
+    """
+
+    :param bba_group_name: str, bba-group name
+    :param pado_delay: int, new calculated pado_delay value
+    :param pado_delay_current_dict: dict, bba_group_name:pado_delay_current values
+    :return: bool, true if bba-group exists and new pado_delay value is different than current
+    """
+    if bba_group_name in pado_delay_current_dict and pado_delay != pado_delay_current_dict[bba_group_name]:
+        return True
+    else:
+        return False
+
+
+def create_pado_config_set(ssh_connection, interfaces_and_pado_list):
+    """
+
+    :param ssh_connection: connection, established via netmiko
+    :param interfaces_and_pado_list: list of pair of all BRAS' interfaces and corresponding pado delay values
+    :return: list of str, commands for netmiko to send to device
+    """
+    config_set = []
+    pado_delay_current_dict = get_pado_delay_current_dict(ssh_connection)
+    for interface_name, pado_delay in interfaces_and_pado_list:
+        for bba_group_name in get_bba_group_names(interface_name):
+
+            # Checking if there are diffs between current pado_delay and new calculated pado_delay values:
+            if is_pado_change_needed(bba_group_name, pado_delay, pado_delay_current_dict):
+                config_set += [f'bba-group pppoe {bba_group_name}', f'pado delay {pado_delay}']
+
+    return config_set
+
+
+def set_pado_delay(ssh_connection, interfaces_and_pado_list):
+    """
+
+    :param interfaces_and_pado_list: list of pair of all BRAS' interfaces and corresponding pado delay values
+    :param ssh_connection: connection, established via netmiko
     :return: None
     """
-    bba_group_names = get_bba_group_names(interface_name)
-    # ssh_connection.send_config_set(f'bba-group pppoe {bba_group_names[0]}', f'pado delay {pado_delay}',
-    #                                f'bba-group pppoe {bba_group_names[1]}', f'pado delay {pado_delay}')
 
-    # print('CONFIGURATION:')
-    # print(f'bba-group pppoe {bba_group_names[0]}\n', f'pado delay {pado_delay}\n',
-    #       f'bba-group pppoe {bba_group_names[1]}\n', f'pado delay {pado_delay}')
-
-    return None
-
-
-def get_parameter_from_file(parameter, filename):
-    """
-
-    :param parameter: str, name of sought parameter
-    :param filename: file object, in which we will search a parameter value
-    :return: str, found parameter value
-    """
-    for line in filename:
-        # Skipping commented lines:
-        if line.startswith('#'):
-            continue
-        search = re.search(r'{} = (\S+)'.format(parameter), line)
-        if search is not None:
-            return search.group(1)
-
-
-def get_dictionary_from_file(filename):
-    """
-
-    :param filename: file object, in which we will search a dictionary
-    :return: dict
-    """
-    dictionary = {}
-    list_of_strings = filename.readlines()
-    for string in list_of_strings:
-        # Skipping commented lines:
-        if string.startswith('#'):
-            continue
-        search = re.search(r'(\S+)\s+=\s+(\S+)', string)
-        if search is not None:
-            dictionary_key = search.group(1)
-            dictionary_value = search.group(2)
-            dictionary[dictionary_key] = dictionary_value
-
-    return dictionary
+    config_set = create_pado_config_set(ssh_connection, interfaces_and_pado_list)
+    if config_set:  # If config_set is not empty
+        ssh_connection.send_config_set(config_set)
 
 
 def main():
-    # Paths to parameters files:
-    PARAM_PATH = os.path.join(os.path.dirname(__file__), 'parameters.txt')
-    IP_ADDRESSES_PATH = os.path.join(os.path.dirname(__file__), 'bras-ip-addresses.txt')
+    # Path to parameters file:
+    parameters_path = os.path.join(os.path.dirname(__file__), 'parameters.json')
 
-    with open(PARAM_PATH) as parameters_file, open(IP_ADDRESSES_PATH) as ip_addresses_file:
-        SSH_USERNAME = get_parameter_from_file('SSH_USERNAME', parameters_file)
-        SSH_PASSWORD = get_parameter_from_file('SSH_PASSWORD', parameters_file)
-        THRESHOLD_256 = int(get_parameter_from_file('THRESHOLD_256', parameters_file))
-        THRESHOLD_512 = int(get_parameter_from_file('THRESHOLD_512', parameters_file))
-        BRAS_LIST = get_dictionary_from_file(ip_addresses_file)
+    # Loading parameters from parameters.json:
+    with open(parameters_path) as parameters_file:
+        parameters = json.load(parameters_file)
+        ssh_username = parameters['ssh_username']
+        ssh_password = parameters['ssh_password']
+        threshold_256 = parameters['threshold_256']
+        threshold_512 = parameters['threshold_512']
+        threshold_9999 = parameters['threshold_9999']
+        bras_dict = parameters['bras_dict']
 
-    print(f'{datetime.now()} Starting the pppoe_session_balancing script as {SSH_USERNAME}')
-    print(f'{datetime.now()} Current thresholds are {THRESHOLD_256} for 256, {THRESHOLD_512} for 512.')
+    print(f'{datetime.now()} Starting the pppoe_session_balancing script as {ssh_username}')
+    print(
+        f'{datetime.now()} Current thresholds are {threshold_256} for 256, {threshold_512} for 512, {threshold_9999} for 9999')
 
-    for device_ip in BRAS_LIST.keys():
-        log_message = ''
-        log_message += BRAS_LIST[device_ip] + '>> '
-        print(f'{datetime.now()} Connecting to {BRAS_LIST[device_ip]}... ', end='')
+    for device_ip in bras_dict.keys():
+        if device_ip.startswith('#'):  # handling comment lines
+            continue
+        log_message = bras_dict[device_ip] + '>> '
+        print(f'{datetime.now()} Connecting to {bras_dict[device_ip]}... ', end='')
 
-        ssh_connection = connection_to_iosxe(SSH_USERNAME, SSH_PASSWORD, device_ip)
+        # Connecting to device:
+        ssh_connection = connection_to_iosxe(ssh_username, ssh_password, device_ip)
         if ssh_connection is None:  # If a connection failed, skipping this BRAS
             continue
-        for interface_and_sessions in get_interfaces_and_sessions(ssh_connection):
-            interface_name = interface_and_sessions[0]
-            sessions_number = int(interface_and_sessions[1])
-            if sessions_number < THRESHOLD_256:
-                pado_delay = 0
-            elif THRESHOLD_256 <= sessions_number < THRESHOLD_512:
-                pado_delay = 256
-            else:
-                pado_delay = 512
 
-            set_pado_delay(ssh_connection, interface_name, pado_delay)
+        # Creating a list with pairs of BRAS' interfaces and corresponding pado delay values:
+        interfaces_and_pado_list = []
 
+        # Pull current sessions amount on BRAS interfaces:
+        for interface_name, sessions_num in get_interfaces_and_sessions(ssh_connection):
+            # Calculating pado delay value to be applied to bba-group according to thresholds:
+            pado_delay = get_pado_delay(int(sessions_num), threshold_256, threshold_512, threshold_9999)
             log_message += get_interface_number(interface_name) + ': PADO=' + str(pado_delay) + ', '
+
+            # Adding interface-pado info to common list:
+            interfaces_and_pado_list.append([interface_name, pado_delay])
+
+        # Send interfaces-pado common list to be applied on BRASes:
+        set_pado_delay(ssh_connection, interfaces_and_pado_list)
 
         print(f'{datetime.now()} {log_message}')
 

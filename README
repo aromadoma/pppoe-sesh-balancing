@@ -7,7 +7,7 @@ parameters.json
 
 The file have to contain values for following parameters:
 'ssh_username', 'ssh_password', 'threshold_256', 'threshold_512', 'threshold_9999', 'bras_dict'.
-If bras ip starts with '#', such device will be considered as a comment line and will not be handled.
+If bras ip starts with '#', such device will be considered as a comment line and won't be handled.
 
 An example of content:
 
